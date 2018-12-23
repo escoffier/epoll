@@ -9,9 +9,10 @@
 #include <netdb.h>
 #include <iostream>
 #include <fcntl.h>
+#include <errno.h>
 
 const int PORT = 9995;
-const char * IP = "192.168.21.197";
+const char * IP = "192.168.0.105";
 
 void set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -24,11 +25,27 @@ void set_nonblocking(int fd) {
 
 const int MAX_EVENT = 100;
 
-char buffer[1024] = {0};
+
 void process(int fd)
 {
-    read(fd, buffer, 1024);
-    std::cout << "receive data: " << buffer << std::endl;
+    char buffer[1024] = {0};
+    int n = read(fd, buffer, 1024);
+    if( n < 0)
+    {
+        if(errno != EWOULDBLOCK)
+        {
+            std::cout << "err: " << strerror(errno) << std::endl;
+            return;
+        }
+    }
+    else if( n == 0)
+    {
+        std::cout << "EOF on socket: " << fd << std::endl;
+    }
+    else
+    {
+        std::cout << "receive "<<n <<" bytes "<<"data: " << buffer << std::endl;
+    }
 }
 
 int main()
@@ -46,9 +63,17 @@ int main()
 
     int listernfd  = socket(AF_INET, SOCK_STREAM, 0);
 
+    int resueAddr = 1;
+
+    if (setsockopt(listernfd, SOL_SOCKET, SO_REUSEADDR, &resueAddr, sizeof(resueAddr))== -1 )
+    {
+        std::cout << "setsockopt error: " <<strerror( errno) <<std::endl;
+        return 1;
+    }
+
     if(bind(listernfd, (struct sockaddr*) &addr, sizeof(addr)) < 0)
     {
-        std::cout << "bind error" <<std::endl;
+        std::cout << "bind error: " <<strerror( errno) <<std::endl;
         return 1;
     }
 
@@ -113,7 +138,15 @@ int main()
             }
             else
             {
-                process(events[i].data.fd);
+                if(events[i].events == EPOLLIN)
+                {
+                    process(events[i].data.fd);
+                }
+                else
+                {
+                    std::cout << "event: " << events[i].events << std::endl;
+                }
+
             }
         }
     }
